@@ -49,7 +49,7 @@ tree.getOctreeRep()
 
 
 
-file_name = "C:\\Users\\inbal\\PycharmProjects\\3D\\venv\\octree.vtu"
+file_name = "octree.vtu"
 reader = vtk.vtkXMLUnstructuredGridReader()
 # reader = vtk.vtkSphereSource()
 reader.SetFileName(file_name)
