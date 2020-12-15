@@ -11,7 +11,7 @@ print('pyoctree version = ', pyoctree.__version__)
 print('vtk version = ', vtk.vtkVersion.GetVTKVersion())
 # Read in stl file using vtk
 reader = vtk.vtkSTLReader()
-reader.SetFileName("C:\\Users\\inbal\\PycharmProjects\\3D\\Head.stl")
+reader.SetFileName("Head.stl")
 reader.MergingOn()
 reader.Update()
 stl = reader.GetOutput()
