@@ -1,5 +1,7 @@
 import trimesh
 import numpy as np
+import binvox_rw
+
 
 def fill_voxels(mesh, voxel):
     global relevant_voxels
@@ -48,7 +50,7 @@ def compute_s_shell():
     compute s vectors for all shell (relevant voxels)
     :return: matrix (1,10) of s vector for each relevant voxel
     """
-    x, y, z = shell.nonzero()
+    x, z, y= shell.matrix.nonzero()
     s_shell = np.zeros(10)
     indices = list(zip(x, y, z))
     for index in indices:
@@ -78,8 +80,9 @@ def s_squared(low, high):
     return (high**3 - low**3)/3
 
 def s_singlebox(mass_properties):
+    global p
     s1 = mass_properties["mass"]
-    sx, sy, sz = mass_properties["center_mass"]/s1
+    sx, sz, sy = mass_properties["center_mass"]/s1 -p
     x_low = sx - 0.5
     x_high = sx + 0.5
     y_low = sy-0.5
@@ -97,11 +100,11 @@ def s_singlebox(mass_properties):
 
 def laplacian():
     global relevant_voxels, map_index_to_num
-    x,y,z = relevant_voxels.nonzero()
+    x,z,y = relevant_voxels.nonzero()
     indices = list(zip(x,y,z))
     laplacian = np.zeros((len(x), len(x)))
     map_index_to_num = {key: value for (value, key) in enumerate(indices)}
-    x_lim, y_lim, z_lim = relevant_voxels.shape
+    x_lim, z_lim, y_lim = relevant_voxels.shape
     for index in indices:
         x,y,z = index
         count = 0
@@ -126,8 +129,9 @@ def laplacian():
         laplacian[map_index_to_num[(x,y,z)]][map_index_to_num[(x,y,z)]] = count
     return laplacian
 
-
-
+def get_origin(shell):
+    matrix = shell.matrix[:,0,:]
+    return matrix.nonzero()[0].mean(),0, matrix.nonzero()[1].mean()
 
 # def optimization(s):
 
@@ -135,15 +139,34 @@ if __name__ == '__main__':
     pitch = 0.04
     relevant_voxels = None
     map_index_to_num = None
-    filename = 'ellipsoid2_3.obj'
-    filename = 'dolphin.obj'
-    filename = 'kitten1_4.obj'
-    obj = trimesh.load_mesh(filename)
-    voxel_obj = voxelize_and_fill(obj)
+    # filename = 'ellipsoid2_3.obj'
+    # filename = 'dolphin.obj'
+    # filename = 'kitten1_4.obj'
+    filename = 'kitten1_4_2.binvox'
+    filename = 'ellipsoid2_3_1.binvox'
+
+    with open(filename, 'rb') as f:
+        binvox_obj = binvox_rw.read_as_3d_array(f)
+
+    # obj = trimesh.load_mesh(filename)
+    # voxel_obj = voxelize_and_fill(obj)
+    voxel_obj = trimesh.voxel.VoxelGrid(binvox_obj.data)
     mass_properties = get_voxel_obj_mass_properties(voxel_obj)
     center_mass = mass_properties["center_mass"]
     mass = mass_properties["mass"]
     inertia = mass_properties["inertia"]
+    shell = trimesh.voxel.VoxelGrid(binvox_obj.data).hollow()
+    relevant_voxels = voxel_obj.matrix ^ shell.matrix
+    p = get_origin(shell)
+
+    # axis = trimesh.creation.axis(origin_color=[1., 0, 0])
+    # scene1 = trimesh.Scene()
+    # # scene.add_geometry(voxel_obj_filled)
+    # scene1.add_geometry(axis)
+    # g = trimesh.voxel.VoxelGrid(voxel_obj.matrix.swapaxes(1, 2))
+    # scene1.add_geometry(g)
+    # scene1.show()
+
     s = get_s(mass_properties)
     s_shell = compute_s_shell()
     laplacian = laplacian()
