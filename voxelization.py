@@ -103,6 +103,7 @@ axis = trimesh.creation.axis(origin_color=[1.,0,0])
 scene = trimesh.Scene()
 # scene.add_geometry(voxel_obj_filled)
 scene.add_geometry(axis)
+# scene1.add_geometry(trimesh.voxel.VoxelGrid(voxel_obj.matrix.swapaxes(1,2)))
 scene.show()
 
 # viewer = trimesh.viewer.SceneViewer(scene)

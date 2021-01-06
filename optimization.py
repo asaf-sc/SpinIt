@@ -133,7 +133,15 @@ def get_origin(shell):
     matrix = shell.matrix[:,0,:]
     return matrix.nonzero()[0].mean(),0, matrix.nonzero()[1].mean()
 
-# def optimization(s):
+
+def f_yoyo (gamma_I, Ia, Ib, Ic):
+    return gamma_I*(pow((Ia/Ic),2)+ pow((Ib/Ic),2))
+
+def f_top (f_yoyo, gamma_c, l, M):
+    return gamma_c*pow(l*M, 2)+f_yoyo
+
+def opt ():
+    min
 
 if __name__ == '__main__':
     pitch = 0.04
@@ -170,10 +178,13 @@ if __name__ == '__main__':
     s = get_s(mass_properties)
     s_shell = compute_s_shell()
     laplacian = laplacian()
-    k_matrix = compute_s()
-    s_everything = s_shell + np.sum(k_matrix, axis=0)
+    s_omega_k_matrix = compute_s() #doesnt change anymore
+    s_everything = s_shell + np.sum(s_omega_k_matrix, axis=0) #doesnt change anymore
+    k = np.sum(relevant_voxels)
     beta = np.ones(k)
-    s_current = s_everything - np.dot(beta, k_matrix)
+    s_omega_omega_tag = s_everything - np.dot(beta, s_omega_k_matrix) # len 10, function of beta
+
+    #input to optimization problem: s_omega_omega_tag
 
     print(s_shell)
     print(s_current)
