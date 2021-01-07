@@ -30,7 +30,7 @@ from numpy.linalg import multi_dot
 
 
 # s_omega_omega_tag = s_everything - np.dot(beta, s_omega_k_matrix) # len 10, function of beta
-# global s_omega_k, s_omega
+
 # min gamma_c l^2 M^2 + gamma_I ( (Ia/Ic)^2 + (Ib/Ic)^2) + gamma_L 0.5 [beta]T L [betta]
 
 #  CONSTRAINTS:
@@ -64,6 +64,8 @@ gamma_I = 1
 gamma_L = 1
 laplacian = None
 k = None
+s_omega_k = None
+s_omega = None
 
 # *------------------------------------------------------------------*
 # *     FUNCTION callbackEvalFC                                      *
@@ -95,7 +97,7 @@ def callbackEvalFC(kc, cb, evalRequest, evalResult, userParams):
     Ia = Sy2 + Sz2
     Ib = Sx2 + Sz2
     Ic = Sx2+ Sy2
-    evalResult.obj = ((Sz * Sz) * gamma_c ) + gamma_I * ((Ia/Ic)*(Ia/Ic) + (Ib/Ic)*(Ib/Ic)) + gamma_L * 0.5 * multi_dot(x.transpose(), laplacian,x)
+    evalResult.obj = ((Sz * Sz) * gamma_c ) + gamma_I * ((Ia/Ic)*(Ia/Ic) + (Ib/Ic)*(Ib/Ic)) + gamma_L * 0.5 * multi_dot((x, laplacian,x))
     # Evaluate nonlinear constraint structure
     evalResult.c[0] = s_omega_omega_tag(1)
     evalResult.c[1] = s_omega_omega_tag(2)
@@ -116,6 +118,8 @@ def callbackEvalGA(kc, cb, evalRequest, evalResult, userParams):
         return -1
     x = evalRequest.x
 
+#   5 x3 + 6 x4 + 8 x5 + 10 x0 - 7 x2 -18 log(x1 + 1)
+#      - 19.2 log(x0 - x1 + 1) + 10
     # Evaluate gradient of nonlinear objective structure
     dTmp1 = x[0] - x[1] + 1.0
     dTmp2 = x[1] + 1.0
@@ -203,88 +207,102 @@ def callbackProcessNode(kcSub, x, lambda_, userParams):
 # *------------------------------------------------------------------*
 # *     main                                                         *
 # *------------------------------------------------------------------*
+def slqp(laplacian_given , s_omega_given, s_omega_k_given):
+    """
 
-# Create a new Knitro solver instance.
-try:
-    kc = KN_new()
-except:
-    print("Failed to find a valid license.")
-    quit()
+    :param laplacian_given:
+    :param s_omega_given:
+    :param s_omega_k_given:
+    :return:
+    """
+    global k, s_omega, s_omega_k, laplacian
+    laplacian, s_omega = laplacian_given, s_omega_given
+    k = s_omega_k_given.shape[0]
+    s_omega_k = s_omega_k_given
 
-# Illustrate how to override default options.
-KN_set_int_param(kc, "algorithm", KN_ALG_ACT_CG)
+    # Create a new Knitro solver instance.
+    try:
+        kc = KN_new()
+    except:
+        print("Failed to find a valid license.")
+        quit()
 
-# Initialize Knitro with the problem definition.
+    # Illustrate how to override default options.
+    KN_set_int_param(kc, "algorithm", KN_ALG_ACT_CG)
 
-# Add the variables and set their bounds and types.
-# Note: any unset lower bounds are assumed to be
-# unbounded below and any unset upper bounds are
-# assumed to be unbounded above.
-KN_add_vars(kc, k)
-KN_set_var_lobnds(kc, xLoBnds=[0] * k)
-KN_set_var_upbnds(kc, xUpBnds=[1] * k)
+    # Initialize Knitro with the problem definition.
 
-# Add the constraints and set their bounds
-KN_add_cons(kc, 5)
-KN_set_con_eqbnds (kc, cEqBnds = [0.0, 0.0, 0.0, 0.0, 0.0]);
+    # Add the variables and set their bounds and types.
+    # Note: any unset lower bounds are assumed to be
+    # unbounded below and any unset upper bounds are
+    # assumed to be unbounded above.
+    KN_add_vars(kc, k)
+    KN_set_var_lobnds(kc, xLoBnds=[0] * k)
+    KN_set_var_upbnds(kc, xUpBnds=[1] * k)
 
-# Add a callback function "callbackEvalFC" to evaluate the nonlinear
-# structure in the objective and first two constraints.  Note that
-# the linear terms in the objective and first two constraints were
-# added above in "KN_add_obj_linear_struct()" and
-# "KN_add_con_linear_struct()" and will not be specified in the
-# callback.
-cIndices = [0, 1, 2, 3, 4]  # Constraint indices for callback
-cb = KN_add_eval_callback(kc, evalObj=True, indexCons=cIndices, funcCallback=callbackEvalFC)
+    # Add the constraints and set their bounds
+    KN_add_cons(kc, 5)
+    KN_set_con_eqbnds (kc, cEqBnds = [0.0, 0.0, 0.0, 0.0, 0.0]);
 
-# Also add a callback function "callbackEvalGA" to evaluate the
-# gradients of all nonlinear terms specified in the callback.  If
-# not provided, Knitro will approximate the gradients using finite-
-# differencing.  However, we recommend providing callbacks to
-# evaluate the exact gradients whenever possible as this can
-# drastically improve the performance of Knitro.
-# Objective gradient non-zero structure for callback
-objGradIndexVarsCB = [0, 1]
-# Constraint Jacobian non-zero structure for callback
-jacIndexConsCB = [0, 0, 1, 1]
-jacIndexVarsCB = [0, 1, 0, 1]
-KN_set_cb_grad(kc, cb, objGradIndexVars=objGradIndexVarsCB, jacIndexCons=jacIndexConsCB, jacIndexVars=jacIndexVarsCB,
-               gradCallback=callbackEvalGA)
+    # Add a callback function "callbackEvalFC" to evaluate the nonlinear
+    # structure in the objective and first two constraints.  Note that
+    # the linear terms in the objective and first two constraints were
+    # added above in "KN_add_obj_linear_struct()" and
+    # "KN_add_con_linear_struct()" and will not be specified in the
+    # callback.
+    cIndices = [0, 1, 2, 3, 4]  # Constraint indices for callback
+    cb = KN_add_eval_callback(kc, evalObj=True, indexCons=cIndices, funcCallback=callbackEvalFC)
 
-hessIndexVars1CB = [0, 0, 1]
-hessIndexVars2CB = [0, 1, 1]
-# Add a callback function "callbackEvalH" to evaluate the Hessian
-# (i.e. second derivative matrix) of the objective.  If not specified,
-# Knitro will approximate the Hessian. However, providing a callback
-# for the exact Hessian (as well as the non-zero sparsity structure)
-# can greatly improve Knitro performance and is recommended if possible.
-# Since the Hessian is symmetric, only the upper triangle is provided.
-KN_set_cb_hess(kc, cb, hessIndexVars1=hessIndexVars1CB, hessIndexVars2=hessIndexVars2CB, hessCallback=callbackEvalH)
+    # Also add a callback function "callbackEvalGA" to evaluate the
+    # gradients of all nonlinear terms specified in the callback.  If
+    # not provided, Knitro will approximate the gradients using finite-
+    # differencing.  However, we recommend providing callbacks to
+    # evaluate the exact gradients whenever possible as this can
+    # drastically improve the performance of Knitro.
+    # Objective gradient non-zero structure for callback
+    # objGradIndexVarsCB = [0, 1]
+    # Constraint Jacobian non-zero structure for callback
+    # jacIndexConsCB = [0, 0, 1, 1]
+    # jacIndexVarsCB = [0, 1, 0, 1]
+    # KN_set_cb_grad(kc, cb, objGradIndexVars=objGradIndexVarsCB, jacIndexCons=jacIndexConsCB, jacIndexVars=jacIndexVarsCB,
+    #                gradCallback=callbackEvalGA)
+    #
+    # hessIndexVars1CB = [0, 0, 1]
+    # hessIndexVars2CB = [0, 1, 1]
+    # Add a callback function "callbackEvalH" to evaluate the Hessian
+    # (i.e. second derivative matrix) of the objective.  If not specified,
+    # Knitro will approximate the Hessian. However, providing a callback
+    # for the exact Hessian (as well as the non-zero sparsity structure)
+    # can greatly improve Knitro performance and is recommended if possible.
+    # Since the Hessian is symmetric, only the upper triangle is provided.
+    # KN_set_cb_hess(kc, cb, hessIndexVars1=hessIndexVars1CB, hessIndexVars2=hessIndexVars2CB, hessCallback=callbackEvalH)
 
-# Specify that the user is able to provide evaluations
-#  of the Hessian matrix without the objective component.
-#  turned off by default but should be enabled if possible.
-KN_set_int_param(kc, KN_PARAM_HESSIAN_NO_F, KN_HESSIAN_NO_F_ALLOW)
+    # Specify that the user is able to provide evaluations
+    #  of the Hessian matrix without the objective component.
+    #  turned off by default but should be enabled if possible.
+    # KN_set_int_param(kc, KN_PARAM_HESSIAN_NO_F, KN_HESSIAN_NO_F_ALLOW)
 
-# Set minimize or maximize (if not set, assumed minimize)
-KN_set_obj_goal(kc, KN_OBJGOAL_MINIMIZE)
+    # Set minimize or maximize (if not set, assumed minimize)
+    KN_set_obj_goal(kc, KN_OBJGOAL_MINIMIZE)
 
-# Set a callback function that performs some user-defined task
-# after completion of each node in the branch-and-bound tree.
-KN_set_mip_node_callback(kc, callbackProcessNode, kc)
+    # Set a callback function that performs some user-defined task
+    # after completion of each node in the branch-and-bound tree.
+    # KN_set_mip_node_callback(kc, callbackProcessNode, kc)
 
-# Solve the problem.
-#
-# Return status codes are defined in "knitro.py" and described
-# in the Knitro manual.
+    # Solve the problem.
+    #
+    # Return status codes are defined in "knitro.py" and described
+    # in the Knitro manual.
 
-nStatus = KN_solve(kc)
-# An example of obtaining solution information.
-nSTatus, objSol, x, lambda_ = KN_get_solution(kc)
-print("Optimal objective value  = %e", objSol)
-print("Optimal x")
-for i in range(n):
-    print("  x[%d] = %e" % (i, x[i]))
+    nStatus = KN_solve(kc)
+    # An example of obtaining solution information.
+    nSTatus, objSol, x, lambda_ = KN_get_solution(kc)
 
-# Delete the Knitro solver instance.
-KN_free(kc)
+    # print("Optimal objective value  = %e", objSol)
+    # print("Optimal x")
+    # for i in range(k):
+    #     print("  x[%d] = %e" % (i, x[i]))
+
+    # Delete the Knitro solver instance.
+    KN_free(kc)
+    return x

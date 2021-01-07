@@ -1,7 +1,7 @@
 import trimesh
 import numpy as np
 import binvox_rw
-
+import slqp
 
 def fill_voxels(mesh, voxel):
     global relevant_voxels
@@ -131,7 +131,7 @@ def laplacian():
 
 def get_origin(shell):
     matrix = shell.matrix[:,0,:]
-    return matrix.nonzero()[0].mean(),0, matrix.nonzero()[1].mean()
+    return matrix.nonzero()[0][0],0, matrix.nonzero()[1][0]
 
 
 def f_yoyo (gamma_I, Ia, Ib, Ic):
@@ -140,8 +140,6 @@ def f_yoyo (gamma_I, Ia, Ib, Ic):
 def f_top (f_yoyo, gamma_c, l, M):
     return gamma_c*pow(l*M, 2)+f_yoyo
 
-def opt ():
-    min
 
 if __name__ == '__main__':
     pitch = 0.04
@@ -150,8 +148,10 @@ if __name__ == '__main__':
     # filename = 'ellipsoid2_3.obj'
     # filename = 'dolphin.obj'
     # filename = 'kitten1_4.obj'
-    filename = 'kitten1_4_2.binvox'
+    # filename = 'kitten1_4_2.binvox'
     filename = 'ellipsoid2_3_1.binvox'
+    # filename = 'ellipsoid2_3_3.binvox'
+    # filename = 'ellipsoid2_3_5.binvox'
 
     with open(filename, 'rb') as f:
         binvox_obj = binvox_rw.read_as_3d_array(f)
@@ -182,9 +182,23 @@ if __name__ == '__main__':
     s_everything = s_shell + np.sum(s_omega_k_matrix, axis=0) #doesnt change anymore
     k = np.sum(relevant_voxels)
     beta = np.ones(k)
-    s_omega_omega_tag = s_everything - np.dot(beta, s_omega_k_matrix) # len 10, function of beta
 
     #input to optimization problem: s_omega_omega_tag
 
-    print(s_shell)
-    print(s_current)
+    beta_k = slqp.slqp(laplacian,s_everything, s_omega_k_matrix)
+    beta_k = np.round(beta_k)
+    np.round(beta_k).nonzero()
+    s_result = s_everything - np.dot(beta_k, s_omega_k_matrix)  # len 10, function of beta
+    map_index_to_num_inv = dict([(value, key) for key, value in map_index_to_num.items()])
+    result_mat = voxel_obj.matrix.copy()
+    for index in np.round(beta_k).nonzero()[0]:
+        x,y,z = map_index_to_num_inv[index]
+        result_mat[x,z,y] = False
+    result = trimesh.voxel.VoxelGrid(result_mat)
+    result.show()
+    slice = trimesh.voxel.VoxelGrid(np.asarray([result_mat[5]]))
+    slice.show()
+    result_mesh = result.as_boxes()
+    result_mesh.visual.face_colors = [100, 100, 100, 100]  # make transparent
+    result_mesh.show()
+    print("h")
