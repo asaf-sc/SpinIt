@@ -3,6 +3,7 @@
 # * All Rights Reserved                                 *
 # *******************************************************
 from numpy.linalg import multi_dot
+import numpy as np
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # This example demonstrates how to use Knitro to solve the following
 # mixed-integer nonlinear optimization problem (MINLP).  This model
@@ -60,8 +61,8 @@ import math
 # *     GLOBALS                               *
 # *------------------------------------------------------------------*
 gamma_c = 1
-gamma_I = 1
-gamma_L = 1
+gamma_I = 100
+gamma_L = 30
 laplacian = None
 k = None
 s_omega_k = None
@@ -83,7 +84,7 @@ def callbackEvalFC(kc, cb, evalRequest, evalResult, userParams):
     # s_everything - np.dot(beta, s_omega_k_matrix)
 
     # Evaluate nonlinear objective structure
-
+    teta = 0
     def s_omega_omega_tag(index):
         global s_omega_k, s_omega
         sum =0
@@ -97,13 +98,16 @@ def callbackEvalFC(kc, cb, evalRequest, evalResult, userParams):
     Ia = Sy2 + Sz2
     Ib = Sx2 + Sz2
     Ic = Sx2+ Sy2
-    evalResult.obj = ((Sz * Sz) * gamma_c ) + gamma_I * ((Ia/Ic)*(Ia/Ic) + (Ib/Ic)*(Ib/Ic)) + gamma_L * 0.5 * multi_dot((x, laplacian,x))
+    # evalResult.obj = x[0]
+    evalResult.obj = ((Sz * Sz) * gamma_c ) + gamma_I * ((Ia/Ic)*(Ia/Ic) + (Ib/Ic)*(Ib/Ic)) + gamma_L * 0.5 * np.dot(np.dot(x, laplacian), x)
+    # evalResult.obj = ((Sz * Sz) * gamma_c ) + gamma_I * ((Ia/Ic)*(Ia/Ic) + (Ib/Ic)*(Ib/Ic)) + gamma_L * 0.5 * multi_dot((x, laplacian,x))
     # Evaluate nonlinear constraint structure
     evalResult.c[0] = s_omega_omega_tag(1)
     evalResult.c[1] = s_omega_omega_tag(2)
-    evalResult.c[2] = s_omega_omega_tag(4)
+    # evalResult.c[2] = s_omega_omega_tag(4)
     evalResult.c[3] = s_omega_omega_tag(5)
     evalResult.c[4] = s_omega_omega_tag(6)
+    evalResult.c[2] = (s_omega_omega_tag(7)- s_omega_omega_tag(8))*np.cos(teta)*np.sin(teta) + (np.cos(teta)*np.cos(teta)-np.sin(teta)*np.sin(teta))* s_omega_omega_tag(4)
     return 0
 
 
@@ -121,18 +125,39 @@ def callbackEvalGA(kc, cb, evalRequest, evalResult, userParams):
 #   5 x3 + 6 x4 + 8 x5 + 10 x0 - 7 x2 -18 log(x1 + 1)
 #      - 19.2 log(x0 - x1 + 1) + 10
     # Evaluate gradient of nonlinear objective structure
-    dTmp1 = x[0] - x[1] + 1.0
-    dTmp2 = x[1] + 1.0
-    evalResult.objGrad[0] = -(19.2 / dTmp1)
-    evalResult.objGrad[1] = (-18.0 / dTmp2) + (19.2 / dTmp1)
+    global s_omega_k
+
+    def s_omega_omega_tag(index):
+        global s_omega_k, s_omega
+        sum = 0
+        for i in range(len(x)):
+            sum += s_omega_k[i][index] * x[i]
+        return s_omega[index] - sum
+
+    Sz = s_omega_omega_tag(3)
+    Sx2 = s_omega_omega_tag(7)
+    Sy2 = s_omega_omega_tag(8)
+    Sz2 = s_omega_omega_tag(9)
+    Ia = Sy2 + Sz2
+
+    Ib = Sx2 + Sz2
+    Ic = Sx2 + Sy2
+
+    #    evalResult.obj = ((Sz * Sz) * gamma_c ) + gamma_I * ((Ia/Ic)*(Ia/Ic) + (Ib/Ic)*(Ib/Ic)) + gamma_L * 0.5 * multi_dot((x, laplacian,x))
+
+    for i in range(len(x)):
+        evalResult.objGrad[i] = 2 * Sz * -s_omega_k[i][3] * gamma_c
+        evalResult.objGrad[i] += gamma_I * 2 * (Ia/Ic) * ((Ic *(-s_omega_k[i][8]-s_omega_k[i][9]) - Ia * (-s_omega_k[i][8]-s_omega_k[i][7]))/(Ic**2))
+        evalResult.objGrad[i] += gamma_I * 2 * (Ib/Ic) * ((Ic *(-s_omega_k[i][7]-s_omega_k[i][9]) - Ib * (-s_omega_k[i][8]-s_omega_k[i][7]))/(Ic**2))
+        evalResult.objGrad[i] +=  gamma_L * 0.5 * np.dot((laplacian[i] + laplacian[:,i]), x)
+
 
     # Gradient of nonlinear structure in constraint 0.
-    evalResult.jac[0] = 0.96 / dTmp1  # wrt x0
-    evalResult.jac[1] = (-0.96 / dTmp1) + (0.8 / dTmp2)  # wrt x1
-    # Gradient of nonlinear structure in constraint 1.
-    evalResult.jac[2] = 1.2 / dTmp1  # wrt x0
-    evalResult.jac[3] = (-1.2 / dTmp1) + (1.0 / dTmp2)  # wrt x1
-
+    i = 0
+    for s_num in [1 ,2 ,4 ,5 ,6]:
+        for j in range(len(x)):
+            evalResult.jac[i] = -s_omega_k[j][s_num]
+            i += 1
     return 0
 
 
@@ -216,9 +241,10 @@ def slqp(laplacian_given , s_omega_given, s_omega_k_given):
     :return:
     """
     global k, s_omega, s_omega_k, laplacian
-    laplacian, s_omega = laplacian_given, s_omega_given
+    scale = 0.001
+    laplacian, s_omega = laplacian_given, s_omega_given*scale
     k = s_omega_k_given.shape[0]
-    s_omega_k = s_omega_k_given
+    s_omega_k = s_omega_k_given*scale
 
     # Create a new Knitro solver instance.
     try:
@@ -229,6 +255,17 @@ def slqp(laplacian_given , s_omega_given, s_omega_k_given):
 
     # Illustrate how to override default options.
     KN_set_int_param(kc, "algorithm", KN_ALG_ACT_CG)
+    # KN_set_int_param(kc, KN_PARAM_MULTISTART, KN_MULTISTART_YES)
+    #
+    # # Perform tuning in parallel using max number of available threads
+    # try:
+    #     import multiprocessing
+    #     nThreads = multiprocessing.cpu_count()
+    #     if nThreads > 1:
+    #         print("Running Knitro Tuner in parallel with %d threads." % nThreads)
+    #         KN_set_int_param(kc, KN_PARAM_PAR_NUMTHREADS, nThreads)
+    # except:
+    #     pass
 
     # Initialize Knitro with the problem definition.
 
@@ -240,9 +277,17 @@ def slqp(laplacian_given , s_omega_given, s_omega_k_given):
     KN_set_var_lobnds(kc, xLoBnds=[0] * k)
     KN_set_var_upbnds(kc, xUpBnds=[1] * k)
 
+    # Define an initial point.  If not set, Knitro will generate one.
+    KN_set_var_primal_init_values(kc, xInitVals=[0] * k)
+
     # Add the constraints and set their bounds
     KN_add_cons(kc, 5)
-    KN_set_con_eqbnds (kc, cEqBnds = [0.0, 0.0, 0.0, 0.0, 0.0]);
+    # KN_add_cons(kc, 1)
+    KN_set_con_lobnds(kc, cLoBnds=np.array([-10.0]*5))
+    KN_set_con_upbnds(kc, cUpBnds=np.array([10.0]*5))
+
+    # KN_set_con_eqbnds (kc, cEqBnds = [0.0]);
+    # KN_set_con_eqbnds (kc, cEqBnds = [0.0, 0.0, 0.0, 0.0, 0.0]);
 
     # Add a callback function "callbackEvalFC" to evaluate the nonlinear
     # structure in the objective and first two constraints.  Note that
@@ -250,8 +295,11 @@ def slqp(laplacian_given , s_omega_given, s_omega_k_given):
     # added above in "KN_add_obj_linear_struct()" and
     # "KN_add_con_linear_struct()" and will not be specified in the
     # callback.
+    # cIndices = [0]  # Constraint indices for callback
     cIndices = [0, 1, 2, 3, 4]  # Constraint indices for callback
-    cb = KN_add_eval_callback(kc, evalObj=True, indexCons=cIndices, funcCallback=callbackEvalFC)
+    cb = KN_add_eval_callback(kc, evalObj=True,
+                              indexCons=cIndices,
+                              funcCallback=callbackEvalFC)
 
     # Also add a callback function "callbackEvalGA" to evaluate the
     # gradients of all nonlinear terms specified in the callback.  If
@@ -260,10 +308,10 @@ def slqp(laplacian_given , s_omega_given, s_omega_k_given):
     # evaluate the exact gradients whenever possible as this can
     # drastically improve the performance of Knitro.
     # Objective gradient non-zero structure for callback
-    # objGradIndexVarsCB = [0, 1]
+    objGradIndexVarsCB = [x for x in range(k)]
     # Constraint Jacobian non-zero structure for callback
-    # jacIndexConsCB = [0, 0, 1, 1]
-    # jacIndexVarsCB = [0, 1, 0, 1]
+    jacIndexConsCB = [i for i in range(5) for _ in range(k)]
+    jacIndexVarsCB = [i for _ in range(5) for i in range(k)]
     # KN_set_cb_grad(kc, cb, objGradIndexVars=objGradIndexVarsCB, jacIndexCons=jacIndexConsCB, jacIndexVars=jacIndexVarsCB,
     #                gradCallback=callbackEvalGA)
     #
@@ -281,6 +329,9 @@ def slqp(laplacian_given , s_omega_given, s_omega_k_given):
     #  of the Hessian matrix without the objective component.
     #  turned off by default but should be enabled if possible.
     # KN_set_int_param(kc, KN_PARAM_HESSIAN_NO_F, KN_HESSIAN_NO_F_ALLOW)
+
+    # Approximate hessian using BFGS
+    KN_set_int_param(kc, "hessopt", KN_HESSOPT_LBFGS)
 
     # Set minimize or maximize (if not set, assumed minimize)
     KN_set_obj_goal(kc, KN_OBJGOAL_MINIMIZE)
@@ -305,4 +356,5 @@ def slqp(laplacian_given , s_omega_given, s_omega_k_given):
 
     # Delete the Knitro solver instance.
     KN_free(kc)
+    print(x)
     return x
